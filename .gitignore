@@ -38,3 +38,6 @@ terraform-token
 *.log
 secrets.tf
 *.txt
+
+# ansible
+password_file
