@@ -11,10 +11,10 @@ Typical workflow:
 
 ## Proxmox configuration
 
-1. Create a `terraform` user in Proxmox.
-2. Add a Terraform role: `pveum role add terraform-role -privs "VM.Allocate VM.Clone VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options VM.Monitor VM.Audit VM.PowerMgmt Datastore.AllocateSpace Datastore.Audit"`
-3. Modify `terraform` user with the above custom role: `pveum aclmod / -user terraform@pve -role terraform-role`
-4. Add an API token with `@pve` authentication, for the `terraform` user.  Specify the `token id` as `terraform-token` or something similar.
+1. Create a `terraform` user in Proxmox: `pveum user add terraform@pve`.
+2. Add a Terraform role: `pveum role add terraform-role -privs "VM.Allocate VM.Clone VM.Config.CDROM VM.Config.CPU VM.Config.Cloudinit VM.Config.Disk VM.Config.HWType VM.Config.Memory VM.Config.Network VM.Config.Options VM.Monitor VM.Audit VM.PowerMgmt Datastore.AllocateSpace Datastore.Audit SDN.Use User.Modify Sys.Audit Sys.Console Sys.Modify Pool.Allocate VM.Migrate"`
+3. Modify `terraform` user with the above custom role: `pveum aclmod / -user terraform@pve -role terraform-role`.
+4. Add an API token with `@pve` authentication, for the `terraform` user.  Specify the `token id` as `terraform-token` or something similar: `pveum user token add terraform@pve terraform-token --privsep=0`.
 5. Copy credentials provided into the `terraform-vault` file under `terraform_token_secret` (i.e. `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`) and `terraform_token_id` (i.e. `terraform@pve!terraform-token`).
 
 ## Ansible vault integration

@@ -9,21 +9,10 @@ terraform {
     # https://registry.terraform.io/providers/Telmate/proxmox/latest
     proxmox = {
       source = "telmate/proxmox"
-      version = "3.0.1-rc3"
+      version = "3.0.1-rc4"
     }
   }
 }
-
-# # https://registry.terraform.io/providers/ansible/ansible/latest/docs
-# resource "ansible_vault" "secrets" {
-#   vault_file          = "terraform-vault2"
-#   vault_password_file = "password_file"
-# }
-
-# # this creates a handle to the vault
-# locals {
-#     decoded_vault_yaml = yamldecode(ansible_vault.secrets.yaml)
-# }
 
 data "external" "vault" {
   program = [
@@ -70,6 +59,7 @@ resource "proxmox_vm_qemu" "homelabvm" {
   # VM Settings. `agent = 1` enables qemu-guest-agent
   agent = 1
   os_type = "cloud-init"
+  ipconfig0 = "ip=dhcp"
   # ipconfig0 = "ip=<x.y.z>.${count.index + 30}/24,gw=<gateway_ip_address>"
   # nameserver = "<w.x.y.z>"
   searchdomain = data.external.vault.result.resource_searchdomain
@@ -79,6 +69,7 @@ resource "proxmox_vm_qemu" "homelabvm" {
   memory = 16384 # bytes
   scsihw = "virtio-scsi-pci"
   bootdisk = "scsi0"
+  bios = "ovmf"
 
   disks {
     scsi {
@@ -91,7 +82,8 @@ resource "proxmox_vm_qemu" "homelabvm" {
                 emulatessd = true
 
                 # Name of the storage that is local to the host where the VM is being created.
-                storage = "local-btrfs"
+                storage = data.external.vault.result.storage
+                # "local-btrfs"
 
                 size = "150G"
             }
