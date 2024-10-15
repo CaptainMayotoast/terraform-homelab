@@ -11,7 +11,18 @@ terraform {
       source = "telmate/proxmox"
       version = "3.0.1-rc4"
     }
+
+    # work around for https://github.com/Telmate/terraform-provider-proxmox/issues/1000
+    # https://registry.terraform.io/providers/ivoronin/macaddress/latest/docs/resources/macaddress
+    macaddress = {
+      source = "ivoronin/macaddress"
+      version = "0.3.2"
+    }
   }
+}
+
+resource "macaddress" "mac_address_analyse" {
+	count = 2
 }
 
 data "external" "vault" {
@@ -19,13 +30,6 @@ data "external" "vault" {
     "./bin/ansible-vault-proxy.sh",
     "terraform-vault2.json"
   ]
-}
-
-output "test1" {
-    sensitive = false
-    # https://support.hashicorp.com/hc/en-us/articles/5175257151891-How-to-output-sensitive-data-with-Terraform
-    # value = nonsensitive(data.external.vault.result.terraform_token_id)
-    value = nonsensitive(data.external.vault.result.ssh_key)
 }
 
 provider "proxmox" {
@@ -43,105 +47,106 @@ provider "proxmox" {
  }
 }
 
-# Creates a proxmox_vm_qemu entity
-# https://registry.terraform.io/providers/Telmate/proxmox/latest/docs/resources/vm_qemu
-resource "proxmox_vm_qemu" "homelabvm" {
-  name = "homelabvm${count.index + 1}" # count.index starts at 0
-  count = 4 # Establishes how many instances will be created
-  target_node = data.external.vault.result.proxmox_host
+resource "proxmox_vm_qemu" "cloudinit-test" {
+    name = "homelabvm${count.index + 1}" # count.index starts at 0
+    count = 2 # Establishes how many instances will be created
+    desc = "A test for using terraform and cloudinit"
 
-  # References our vars.tf file to plug in our template name
-  clone = data.external.vault.result.template_name
-  # Creates a full clone, rather than linked clone
-  # https://pve.proxmox.com/wiki/VM_Templates_and_Clones
-  full_clone  = "true"
+    ciuser = data.external.vault.result.connection_user
+    cipassword = data.external.vault.result.connection_user_password
+    searchdomain = data.external.vault.result.resource_searchdomain
 
-  # VM Settings. `agent = 1` enables qemu-guest-agent
-  agent = 1
-  os_type = "cloud-init"
-  ipconfig0 = "ip=dhcp"
-  # ipconfig0 = "ip=<x.y.z>.${count.index + 30}/24,gw=<gateway_ip_address>"
-  # nameserver = "<w.x.y.z>"
-  searchdomain = data.external.vault.result.resource_searchdomain
-  cores = 4
-  sockets = 2
-  cpu = "host"
-  memory = 16384 # bytes
-  scsihw = "virtio-scsi-pci"
-  bootdisk = "scsi0"
-  bios = "ovmf"
+    # Node name has to be the same name as within the cluster
+    # this might not include the FQDN
+    target_node = data.external.vault.result.proxmox_host
 
-  disks {
-    scsi {
-        scsi0{
-            disk {
-                # Enables thin-provisioning
-                discard = true
+    # The template name to clone this vm from
+    clone = data.external.vault.result.template_name
 
-                # Enables SSD emulation
-                emulatessd = true
+    # Activate QEMU agent for this VM
+    agent = 1
 
-                # Name of the storage that is local to the host where the VM is being created.
-                storage = data.external.vault.result.storage
-                # "local-btrfs"
+    balloon = "1024" # MB
+    bios    = "ovmf"
+    cores   = "4"
+    cpu     = "host"
+    memory  = "1024" # MB
+    os_type = "cloud-init"
+    scsihw = "virtio-scsi-pci"
+    tablet  = "true"
+    # tags    = var.virtual_machine_tags
+    qemu_os = "l26"
+    vcpus   = "0"
 
-                size = "150G"
+    # Setup the disks
+    disks {
+        scsi {
+            scsi0 {
+                disk {
+                  backup     = true
+                  cache      = "writethrough"
+                  discard    = true
+                  emulatessd = true
+                  iothread   = true
+                  replicate  = true
+                  size       = "200G"
+                  storage    = data.external.vault.result.storage
+                }
+            }
+            scsi1 {
+                cloudinit {
+                  storage = data.external.vault.result.storage
+                }
             }
         }
     }
 
-    # slot = 0
-    # size = "150G"
-    # type = "scsi"
-    # # Name of the storage that is local to the host where the VM is being created.
-    # storage = "local-btrfs"
-    # # Enables SSD emulation
-    # ssd = 1
-    # # Enables thin-provisioning
-    # discard = "on"
-  }
+    # Setup the network interface and assign a vlan tag: 50
+    network {
+        model = "virtio"
+        bridge = data.external.vault.result.nic_name
+        # tag = 50
+        macaddr = upper(macaddress.mac_address_analyse[count.index].address)
+    }
 
-  network {
-    model = "virtio"
-    bridge = data.external.vault.result.nic_name
-    # omit this tag if VLANs are not being utilized.
-    #tag = var.vlan_num
-  }
+    # setup the ip address using cloud-init.
+    boot = "order=scsi0"
 
-  # https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle
-  lifecycle {
-    create_before_destroy = true
-    ignore_changes = [
-      network,
-    ]
-  }
+    # dhcp does not seem to work properly for this version of Telmate Proxmox, set an IP in the static range of the router
+    ipconfig0 = "ip=192.168.20.20${count.index + 1}/24,gw=192.168.20.1"
 
-  connection {
-      host        = self.default_ipv4_address
-      type        = "ssh"
-      user        = data.external.vault.result.connection_user
-      password    = data.external.vault.result.password
-  }
+    sshkeys = data.external.vault.result.ssh_key
 
-  provisioner "remote-exec" {
-    inline = [
-      # add ansible user
-      "echo ${data.external.vault.result.ansible_password} | sudo -S useradd -m ansible;",
-      # load SSH key for ansible user on command machine (where Terraform commands are launched from)
-      "sudo bash -c 'mkdir /home/ansible/.ssh/ && echo ${data.external.vault.result.ssh_key_ansible} >> /home/ansible/.ssh/authorized_keys';",
-      # add ansible to sudoers file for passwordless operations
-      # https://www.ibm.com/docs/en/storage-ceph/5?topic=installation-creating-ansible-user-sudo-access
-      "sudo bash -c \"cat << EOF >/etc/sudoers.d/ansible\nansible ALL = (root) NOPASSWD:ALL\nEOF\";",
-      "sudo chmod 0440 /etc/sudoers.d/ansible;",
-      # establish Longhorn directory (774 -> owner r/w/x, group r/w/x, public r)
-      # need 'x' permissions for user and group (https://askubuntu.com/questions/1393823/cannot-cd-into-directory-even-though-group-has-permissions)
-      "sudo mkdir -p -m 774 /var/lib/longhorn;",
-      "sudo chown ansible:ansible /var/lib/longhorn;",
-      "echo Done!;"
-    ]
-  }
+    # https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle
+    lifecycle {
+        create_before_destroy = true
+        ignore_changes = [
+        network,
+        ]
+    }
 
-  # provisioner "local-exec" {
-  #   command = "ANSIBLE_HOST_KEY_CHECKING=False ansible-playbook -u root -i '${self.ipv4_address},' --private-key ${var.pvt_key} -e 'pub_key=${var.pub_key}' apache-install.yml"
-  # }
+    connection {
+        host        = self.default_ipv4_address
+        type        = "ssh"
+        user        = data.external.vault.result.connection_user
+        password    = data.external.vault.result.connection_user_password
+    }
+
+    provisioner "remote-exec" {
+        inline = [
+        # add ansible user
+        "echo ${data.external.vault.result.ansible_user_password} | sudo -S useradd -m ${data.external.vault.result.ansible_user};",
+        # load SSH key for ansible user on command machine (where Terraform commands are launched from)
+        "sudo bash -c 'mkdir /home/ansible/.ssh/ && echo ${data.external.vault.result.ssh_key_ansible} >> /home/ansible/.ssh/authorized_keys';",
+        # add ansible to sudoers file for passwordless operations
+        # https://www.ibm.com/docs/en/storage-ceph/5?topic=installation-creating-ansible-user-sudo-access
+        "sudo bash -c \"cat << EOF >/etc/sudoers.d/ansible\nansible ALL = (root) NOPASSWD:ALL\nEOF\";",
+        "sudo chmod 0440 /etc/sudoers.d/ansible;",
+        # establish Longhorn directory (774 -> owner r/w/x, group r/w/x, public r)
+        # need 'x' permissions for user and group (https://askubuntu.com/questions/1393823/cannot-cd-into-directory-even-though-group-has-permissions)
+        "sudo mkdir -p -m 774 /var/lib/longhorn;",
+        "sudo chown ansible:ansible /var/lib/longhorn;",
+        "echo Done!;"
+        ]
+    }
 }
