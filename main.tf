@@ -23,7 +23,7 @@ terraform {
 }
 
 resource "macaddress" "mac_address_analyse" {
-	count = 2
+	count = 4
 }
 
 data "external" "vault" {
@@ -50,7 +50,7 @@ provider "proxmox" {
 
 resource "proxmox_vm_qemu" "cloudinit-test" {
     name = "homelabvm${count.index + 1}" # count.index starts at 0
-    count = 2 # Establishes how many instances will be created
+    count = 4 # Establishes how many instances will be created
     desc = "A test for using terraform and cloudinit"
 
     ciuser = data.external.vault.result.connection_user
@@ -89,7 +89,8 @@ resource "proxmox_vm_qemu" "cloudinit-test" {
                   cache      = "writethrough"
                   discard    = true
                   emulatessd = true
-                  iothread   = true
+                  # iothread is only valid with virtio disk or virtio-scsi-single controller
+                  # iothread   = true
                   replicate  = true
                   size       = "200G"
                   storage    = data.external.vault.result.storage
