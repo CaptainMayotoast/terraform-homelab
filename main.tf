@@ -1,5 +1,6 @@
 terraform {
   required_providers {
+    # used for leveraging Ansible vaults to store field values
     # https://github.com/hashicorp/terraform-provider-external
     external = {
       source  = "hashicorp/external"
@@ -28,7 +29,7 @@ resource "macaddress" "mac_address_analyse" {
 data "external" "vault" {
   program = [
     "./bin/ansible-vault-proxy.sh",
-    "terraform-vault2.json"
+    "terraform-vault.json"
   ]
 }
 
@@ -74,9 +75,10 @@ resource "proxmox_vm_qemu" "cloudinit-test" {
     os_type = "cloud-init"
     scsihw = "virtio-scsi-pci"
     tablet  = "true"
-    # tags    = var.virtual_machine_tags
     qemu_os = "l26"
     vcpus   = "0"
+
+    # tags    = var.virtual_machine_tags
 
     # Setup the disks
     disks {
@@ -101,7 +103,7 @@ resource "proxmox_vm_qemu" "cloudinit-test" {
         }
     }
 
-    # Setup the network interface and assign a vlan tag: 50
+    # setup the network interface and assign a vlan tag: 50
     network {
         model = "virtio"
         bridge = data.external.vault.result.nic_name

@@ -6,8 +6,8 @@ Typical workflow:
 
 1. `terraform init`
 2. `terraform plan -out <plan_name>.txt`
-3. `terraform apply "<plan_name>.txt"`
-4. `terraform destroy`
+3. `terraform apply -parallelism=1 "<plan_name>.txt"`
+4. `terraform destroy` (when needed)
 
 ## Proxmox configuration
 
@@ -34,7 +34,7 @@ Typical workflow:
 
 7. Proceed to run `terraform plan -out <plan_name>.txt`.
 
-8. Run `terraform apply "<plan_name>.txt"`
+8. Run `terraform apply <plan_name>.txt`
 
 ## Helpful articles
 
