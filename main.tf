@@ -149,49 +149,44 @@ resource "proxmox_virtual_environment_vm" "vm_template" {
   }
 }
 
-# # Create Multiple VMs
-# module "vm_multiple_config" {
-#   source = "github.com/CaptainMayotoast/terraform-bpg-proxmox//modules/vm-clone"
+# Create Multiple VMs
+module "vm_multiple_config" {
+  source = "github.com/CaptainMayotoast/terraform-bpg-proxmox//modules/vm-clone"
 
-#   for_each = tomap({
-#     "vm-example-01" = {
-#       id           = 101
-#       template     = 1212
-#       datastore_id = "local-zfs"
-#       vnic_bridge  = "vmbr0"
-#       ci_password = "password1"
-#     },
-#     "vm-example-02" = {
-#       id           = 102
-#       template     = 1212
-#       datastore_id = "local-zfs"
-#       vnic_bridge  = "vmbr0"
-#       ci_password = "password1"
-#     },
-#   })
+  for_each = tomap({
+    "vm-example-01" = {
+      id           = 101
+      template     = 1212
+      datastore_id = "local-zfs"
+      vnic_bridge  = "vmbr1"
+      ci_password  = "password1"
+    },
+    "vm-example-02" = {
+      id           = 102
+      template     = 1212
+      datastore_id = "local-zfs" # not sure if this is effectual - check
+      vnic_bridge  = "vmbr1"     # not sure if this is effectual - check
+      ci_password  = "password1" # not sure if this is effectual - check
+    },
+  })
 
-#   node        = data.external.vault.result.proxmox_host # required
-#   vm_id       = each.value.id                           # required
-#   vm_name     = each.key                                # optional
-#   template_id = each.value.template                     # required
-#   #   bios        = "seabios"
-#   #   machine     = "q35"
-#   ci_user     = "aschwartz"
-#   ci_ssh_key  = "~/.ssh/id_ed25519.pub" # optional, add SSH key to "default" user
-#   #   efi_disk_storage = "local-zfs"'
+  node            = data.external.vault.result.proxmox_host # required
+  vm_id           = each.value.id                           # required
+  vm_name         = each.key                                # optional
+  template_id     = each.value.template                     # required
+  ci_user         = "aschwartz"
+  ci_ssh_key      = "~/.ssh/id_ed25519.pub" # optional, add SSH key to "default" user
+  ci_ipv4_cidr    = "dhcp"
+  ci_ipv4_gateway = ""
+}
 
-#   #   disks {
-#   #     disk_storage = "local-zfs"
-#   #   }
-# }
+output "id_multiple_vms" {
+  value = { for k, v in module.vm_multiple_config : k => v.id }
+}
 
-# output "id_multiple_vms" {
-#   value = { for k, v in module.vm_multiple_config : k => v.id }
-# }
-
-# output "public_ipv4_multiple_vms" {
-#   value = { for k, v in module.vm_multiple_config : k => flatten(v.public_ipv4) }
-# }
+output "public_ipv4_multiple_vms" {
+  value = { for k, v in module.vm_multiple_config : k => flatten(v.public_ipv4) }
+}
 
 # resource "proxmox_vm_qemu" "cloudinit-test" {
 #     # https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle
