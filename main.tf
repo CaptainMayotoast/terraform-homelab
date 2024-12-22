@@ -7,23 +7,12 @@ terraform {
       version = "2.3.3"
     }
 
-    # https://registry.terraform.io/providers/Telmate/proxmox/latest
+    # https://registry.terraform.io/providers/bpg/proxmox/latest/docs
     proxmox = {
-      source = "telmate/proxmox"
-      version = "3.0.1-rc4"
-    }
-
-    # work around for https://github.com/Telmate/terraform-provider-proxmox/issues/1000
-    # https://registry.terraform.io/providers/ivoronin/macaddress/latest/docs/resources/macaddress
-    macaddress = {
-      source = "ivoronin/macaddress"
-      version = "0.3.2"
+      source  = "bpg/proxmox"
+      version = ">=0.69.0"
     }
   }
-}
-
-resource "macaddress" "mac_address_analyse" {
-	count = 4
 }
 
 data "external" "vault" {
@@ -33,106 +22,200 @@ data "external" "vault" {
   ]
 }
 
-provider "proxmox" {
-  pm_api_url = data.external.vault.result.api_url
-  pm_api_token_id = data.external.vault.result.terraform_token_id
-  pm_api_token_secret = data.external.vault.result.terraform_token_secret
-  pm_tls_insecure = true
+# https://www.trfore.com/posts/using-terraform-to-create-proxmox-templates/
 
-  pm_log_enable = true
-  pm_log_file = "terraform-plugin-proxmox.log"
-  pm_debug = true
-  pm_log_levels = {
-    _default = "debug"
-    _capturelog = ""
- }
+provider "proxmox" {
+  endpoint  = data.external.vault.result.api_url
+  api_token = data.external.vault.result.api_token
+  #   username  = data.external.vault.result.connection_user
+  #   password  = data.external.vault.result.connection_user_password
+  insecure = true
+  ssh {
+    agent    = true
+    username = data.external.vault.result.connection_user
+    # password    = data.external.vault.result.connection_user_password
+    private_key = data.external.vault.result.connection_user_private_key
+  }
 }
 
-resource "proxmox_vm_qemu" "cloudinit-test" {
-    name = "homelabvm${count.index + 1}" # count.index starts at 0
-    count = 4 # Establishes how many instances will be created
-    desc = "A test for using terraform and cloudinit"
+# Download a cloud image using BPG provider
+resource "proxmox_virtual_environment_download_file" "image" {
+  node_name    = data.external.vault.result.proxmox_host
+  content_type = "iso"
+  datastore_id = data.external.vault.result.storage
+  # file_name          = "noble-server-cloudimg-amd64.img"
+  url                = "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+  checksum           = "b63f266fa4bdf146dea5b0938fceac694cb3393688fb12a048ba2fc72e7bfe1b"
+  checksum_algorithm = "sha256"
+  overwrite          = false
 
-    ciuser = data.external.vault.result.connection_user
-    cipassword = data.external.vault.result.connection_user_password
-    searchdomain = data.external.vault.result.resource_searchdomain
+  lifecycle {
+    prevent_destroy = true
+  }
+}
 
-    # Node name has to be the same name as within the cluster
-    # this might not include the FQDN
-    target_node = data.external.vault.result.proxmox_host
+# Create a custom cloud-init config using BPG provider
+resource "proxmox_virtual_environment_file" "vendor_data" {
+  node_name    = data.external.vault.result.proxmox_host
+  datastore_id = data.external.vault.result.storage
+  content_type = "snippets"
 
-    # The template name to clone this vm from
-    clone = data.external.vault.result.template_name
+  source_raw {
+    file_name = "vendor-data.yaml"
+    data      = <<-EOF
+      #cloud-config
+      packages:
+        - qemu-guest-agent
+      package_update: true
+      power_state:
+        mode: reboot
+        timeout: 30
+      EOF
+  }
 
-    # Activate QEMU agent for this VM
-    agent = 1
+  lifecycle {
+    prevent_destroy = true
+  }
+}
 
-    balloon = "1024" # MB
-    bios    = "ovmf"
-    cores   = "4"
-    cpu     = "host"
-    memory  = "1024" # MB
-    os_type = "cloud-init"
-    scsihw = "virtio-scsi-pci"
-    tablet  = "true"
-    qemu_os = "l26"
-    vcpus   = "0"
+# Create a VM template
+resource "proxmox_virtual_environment_vm" "vm_template" {
+  depends_on = [proxmox_virtual_environment_download_file.image]
 
-    # tags    = var.virtual_machine_tags
+  node_name = data.external.vault.result.proxmox_host
+  vm_id     = "1212"
+  name      = "ubuntu24"
+  bios      = "seabios"
+  machine   = "q35"
+  started   = false # Don't boot the VM
+  template  = true  # Turn the VM into a template
 
-    # Setup the disks
-    disks {
-        scsi {
-            scsi0 {
-                disk {
-                  backup     = true
-                  cache      = "writethrough"
-                  discard    = true
-                  emulatessd = true
-                  # iothread is only valid with virtio disk or virtio-scsi-single controller
-                  # iothread   = true
-                  replicate  = true
-                  size       = "200G"
-                  storage    = data.external.vault.result.storage
-                }
-            }
-            scsi1 {
-                cloudinit {
-                  storage = data.external.vault.result.storage
-                }
-            }
-        }
+  agent {
+    enabled = true
+  }
+
+  cpu {
+    cores = 2
+    type  = "host"
+  }
+
+  memory {
+    dedicated = 8192
+    floating  = 8192
+  }
+
+  # # create an EFI disk when the bios is set to ovmf
+  # dynamic "efi_disk" {
+  #   for_each = (bios == "ovmf" ? [1] : [])
+  #   content {
+  #     datastore_id      = data.external.vault.result.storage
+  #     file_format       = "raw"
+  #     type              = "4m"
+  #     pre_enrolled_keys = true
+  #   }
+  # }
+
+  disk {
+    file_id      = proxmox_virtual_environment_download_file.image.id
+    datastore_id = "local-zfs"
+    interface    = "scsi0"
+    size         = 8
+    file_format  = "raw"
+    cache        = "writeback"
+    iothread     = false
+    ssd          = true
+    discard      = "on"
+  }
+
+  network_device {
+    # network device that the Proxmox server is accessible on
+    # https://registry.terraform.io/providers/bpg/proxmox/latest/docs#node-ip-address-used-for-ssh-connection
+    # it seems that whatever interface has a gateway set will be selected
+    bridge = "vmbr0"
+  }
+
+  # cloud-init config
+  initialization {
+    interface           = "ide2"
+    type                = "nocloud"
+    vendor_data_file_id = "local:snippets/vendor-data.yaml"
+    datastore_id        = "local-zfs"
+
+    ip_config {
+      ipv4 {
+        address = "dhcp"
+      }
     }
+  }
+}
 
-    # setup the network interface and assign a vlan tag: 50
-    network {
-        model = "virtio"
-        bridge = data.external.vault.result.nic_name
-        # tag = 50
-        macaddr = upper(macaddress.mac_address_analyse[count.index].address)
-    }
+# Create Multiple VMs
+module "vm_multiple_config" {
+  source = "github.com/CaptainMayotoast/terraform-bpg-proxmox//modules/vm-clone"
 
-    # setup the ip address using cloud-init.
-    boot = "order=scsi0"
+  for_each = tomap({
+    "homelab-k8s-vm0" = {
+      id           = 101
+      template     = 1212
+      datastore_id = "local-zfs"
+      vnic_bridge  = "vmbr1"
+      ci_password  = "password1"
+    },
+    "homelab-k8s-vm1" = {
+      id           = 102
+      template     = 1212
+      datastore_id = "local-zfs"
+      vnic_bridge  = "vmbr1"
+      ci_password  = "password1"
+    },
+    "homelab-k8s-vm2" = {
+      id           = 103
+      template     = 1212
+      datastore_id = "local-zfs"
+      vnic_bridge  = "vmbr1"
+      ci_password  = "password1"
+    },
+    "homelab-k8s-vm3" = {
+      id           = 104
+      template     = 1212
+      datastore_id = "local-zfs" # not sure if this is effectual - check
+      vnic_bridge  = "vmbr1"     # not sure if this is effectual - check
+      ci_password  = "password1" # not sure if this is effectual - check
+    },
+  })
 
-    # dhcp does not seem to work properly for this version of Telmate Proxmox, set an IP in the static range of the router
-    ipconfig0 = "ip=192.168.20.20${count.index + 1}/24,gw=192.168.20.1"
+  node         = data.external.vault.result.proxmox_host # required
+  vm_id        = each.value.id                           # required
+  vm_name      = each.key                                # optional
+  template_id  = each.value.template                     # required
+  vnic_bridge  = each.value.vnic_bridge
+  datastore_id = each.value.datastore_id
 
-    sshkeys = data.external.vault.result.ssh_key
+  ci_password = each.value.ci_password
+  ci_user     = "aschwartz"
+  ci_ssh_key  = "~/.ssh/id_ed25519.pub" # optional, add SSH key to "default" user
 
-    # https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle
-    lifecycle {
-        create_before_destroy = true
-        ignore_changes = [
-        network,
-        ]
-    }
+  # seems required for getting a DHCP address for vmbr1 (.20 third octet)
+  ci_ipv4_cidr    = "dhcp"
+  ci_ipv4_gateway = ""
+}
+
+output "id_multiple_vms" {
+  value = { for k, v in module.vm_multiple_config : k => v.id }
+}
+
+output "public_ipv4_multiple_vms" {
+  value = { for k, v in module.vm_multiple_config : k => flatten(v.public_ipv4) }
+}
+
+resource "null_resource" "cluster_config" {
+    for_each = { for k, v in module.vm_multiple_config : k => flatten(v.public_ipv4) }
 
     connection {
-        host        = self.default_ipv4_address
+        host        = each.value[0]
         type        = "ssh"
-        user        = data.external.vault.result.connection_user
-        password    = data.external.vault.result.connection_user_password
+        user        = data.external.vault.result.vm_user
+        password    = data.external.vault.result.vm_user_password
     }
 
     provisioner "remote-exec" {
@@ -153,3 +236,38 @@ resource "proxmox_vm_qemu" "cloudinit-test" {
         ]
     }
 }
+
+# resource "proxmox_vm_qemu" "cloudinit-test" {
+#     # https://developer.hashicorp.com/terraform/language/meta-arguments/lifecycle
+#     lifecycle {
+#         create_before_destroy = true
+#         ignore_changes = [
+#         network,
+#         ]
+#     }
+
+#     connection {
+#         host        = self.default_ipv4_address
+#         type        = "ssh"
+#         user        = data.external.vault.result.connection_user
+#         password    = data.external.vault.result.connection_user_password
+#     }
+
+#     provisioner "remote-exec" {
+#         inline = [
+#         # add ansible user
+#         "echo ${data.external.vault.result.ansible_user_password} | sudo -S useradd -m ${data.external.vault.result.ansible_user};",
+#         # load SSH key for ansible user on command machine (where Terraform commands are launched from)
+#         "sudo bash -c 'mkdir /home/ansible/.ssh/ && echo ${data.external.vault.result.ssh_key_ansible} >> /home/ansible/.ssh/authorized_keys';",
+#         # add ansible to sudoers file for passwordless operations
+#         # https://www.ibm.com/docs/en/storage-ceph/5?topic=installation-creating-ansible-user-sudo-access
+#         "sudo bash -c \"cat << EOF >/etc/sudoers.d/ansible\nansible ALL = (root) NOPASSWD:ALL\nEOF\";",
+#         "sudo chmod 0440 /etc/sudoers.d/ansible;",
+#         # establish Longhorn directory (774 -> owner r/w/x, group r/w/x, public r)
+#         # need 'x' permissions for user and group (https://askubuntu.com/questions/1393823/cannot-cd-into-directory-even-though-group-has-permissions)
+#         "sudo mkdir -p -m 774 /var/lib/longhorn;",
+#         "sudo chown ansible:ansible /var/lib/longhorn;",
+#         "echo Done!;"
+#         ]
+#     }
+# }
