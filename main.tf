@@ -154,15 +154,29 @@ module "vm_multiple_config" {
   source = "github.com/CaptainMayotoast/terraform-bpg-proxmox//modules/vm-clone"
 
   for_each = tomap({
-    "vm-example-01" = {
+    "homelab-k8s-vm0" = {
       id           = 101
       template     = 1212
       datastore_id = "local-zfs"
       vnic_bridge  = "vmbr1"
       ci_password  = "password1"
     },
-    "vm-example-02" = {
+    "homelab-k8s-vm1" = {
       id           = 102
+      template     = 1212
+      datastore_id = "local-zfs"
+      vnic_bridge  = "vmbr1"
+      ci_password  = "password1"
+    },
+    "homelab-k8s-vm2" = {
+      id           = 103
+      template     = 1212
+      datastore_id = "local-zfs"
+      vnic_bridge  = "vmbr1"
+      ci_password  = "password1"
+    },
+    "homelab-k8s-vm3" = {
+      id           = 104
       template     = 1212
       datastore_id = "local-zfs" # not sure if this is effectual - check
       vnic_bridge  = "vmbr1"     # not sure if this is effectual - check
@@ -170,12 +184,18 @@ module "vm_multiple_config" {
     },
   })
 
-  node            = data.external.vault.result.proxmox_host # required
-  vm_id           = each.value.id                           # required
-  vm_name         = each.key                                # optional
-  template_id     = each.value.template                     # required
-  ci_user         = "aschwartz"
-  ci_ssh_key      = "~/.ssh/id_ed25519.pub" # optional, add SSH key to "default" user
+  node        = data.external.vault.result.proxmox_host # required
+  vm_id       = each.value.id                           # required
+  vm_name     = each.key                                # optional
+  template_id = each.value.template                     # required
+  vnic_bridge = each.value.vnic_bridge
+  datastore_id = each.value.datastore_id
+
+  ci_password = each.value.ci_password
+  ci_user    = "aschwartz"
+  ci_ssh_key = "~/.ssh/id_ed25519.pub" # optional, add SSH key to "default" user
+
+  # seems required for getting a DHCP address for vmbr1 (.20 third octet)
   ci_ipv4_cidr    = "dhcp"
   ci_ipv4_gateway = ""
 }
