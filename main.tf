@@ -184,16 +184,16 @@ module "vm_multiple_config" {
     },
   })
 
-  node        = data.external.vault.result.proxmox_host # required
-  vm_id       = each.value.id                           # required
-  vm_name     = each.key                                # optional
-  template_id = each.value.template                     # required
-  vnic_bridge = each.value.vnic_bridge
+  node         = data.external.vault.result.proxmox_host # required
+  vm_id        = each.value.id                           # required
+  vm_name      = each.key                                # optional
+  template_id  = each.value.template                     # required
+  vnic_bridge  = each.value.vnic_bridge
   datastore_id = each.value.datastore_id
 
   ci_password = each.value.ci_password
-  ci_user    = "aschwartz"
-  ci_ssh_key = "~/.ssh/id_ed25519.pub" # optional, add SSH key to "default" user
+  ci_user     = "aschwartz"
+  ci_ssh_key  = "~/.ssh/id_ed25519.pub" # optional, add SSH key to "default" user
 
   # seems required for getting a DHCP address for vmbr1 (.20 third octet)
   ci_ipv4_cidr    = "dhcp"
@@ -206,6 +206,35 @@ output "id_multiple_vms" {
 
 output "public_ipv4_multiple_vms" {
   value = { for k, v in module.vm_multiple_config : k => flatten(v.public_ipv4) }
+}
+
+resource "null_resource" "cluster_config" {
+    for_each = { for k, v in module.vm_multiple_config : k => flatten(v.public_ipv4) }
+
+    connection {
+        host        = each.value[0]
+        type        = "ssh"
+        user        = data.external.vault.result.vm_user
+        password    = data.external.vault.result.vm_user_password
+    }
+
+    provisioner "remote-exec" {
+        inline = [
+        # add ansible user
+        "echo ${data.external.vault.result.ansible_user_password} | sudo -S useradd -m ${data.external.vault.result.ansible_user};",
+        # load SSH key for ansible user on command machine (where Terraform commands are launched from)
+        "sudo bash -c 'mkdir /home/ansible/.ssh/ && echo ${data.external.vault.result.ssh_key_ansible} >> /home/ansible/.ssh/authorized_keys';",
+        # add ansible to sudoers file for passwordless operations
+        # https://www.ibm.com/docs/en/storage-ceph/5?topic=installation-creating-ansible-user-sudo-access
+        "sudo bash -c \"cat << EOF >/etc/sudoers.d/ansible\nansible ALL = (root) NOPASSWD:ALL\nEOF\";",
+        "sudo chmod 0440 /etc/sudoers.d/ansible;",
+        # establish Longhorn directory (774 -> owner r/w/x, group r/w/x, public r)
+        # need 'x' permissions for user and group (https://askubuntu.com/questions/1393823/cannot-cd-into-directory-even-though-group-has-permissions)
+        "sudo mkdir -p -m 774 /var/lib/longhorn;",
+        "sudo chown ansible:ansible /var/lib/longhorn;",
+        "echo Done!;"
+        ]
+    }
 }
 
 # resource "proxmox_vm_qemu" "cloudinit-test" {
