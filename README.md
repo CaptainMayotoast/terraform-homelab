@@ -64,4 +64,5 @@ Encrypt with: `ansible-vault encrypt terraform-vault.json --vault-password-file 
 
 - Proxmox/Terraform provider permissions https://github.com/Telmate/terraform-provider-proxmox/issues/784
 - Proxmox/Terraform general setup https://tcude.net/using-terraform-with-proxmox/
-- Create Proxmox templates https://tcude.net/creating-a-vm-template-in-proxmox/
+- Create Proxmox [templates](https://www.trfore.com/posts/using-terraform-to-create-proxmox-templates/)
+- Create Proxmox [VMs](https://www.trfore.com/posts/provisioning-proxmox-8-vms-with-terraform-and-bpg/)
