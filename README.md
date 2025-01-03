@@ -6,7 +6,7 @@ Typical workflow:
 
 1. `terraform init`
 2. `terraform plan -out <plan_name>.txt`
-3. `terraform apply -parallelism=1 "<plan_name>.txt"`
+3. `terraform apply "<plan_name>.txt"`
 4. `terraform destroy` (when needed)
 
 ## Proxmox configuration
@@ -47,8 +47,7 @@ Encrypt with: `ansible-vault encrypt terraform-vault.json --vault-password-file 
 - `api_token`, the full token, i.e. `<username>@pam!token=XXXXXXXX-XXXXX-XXXX-XXXX-XXXXXXXXXXXX`
 - `api_url`, the PVE API URL, i.e. `https:://...`
 - `connection_user`, used to make the connection to Proxmox over SSH (i.e. `terraform`)
-- `connection_user_password`
-- `connection_user_private_key`
+- `connection_user_private_key`, path to the private key for connecting to Proxmox, i.e. `~/.ssh/terraform_id_ed25519` 
 - `nic_name`, the name of the target NIC (i.e. `vmbr<n>`, where `n` >= `0`)
 - `proxmox_host`, the name of the PVE node (aka its hostname) 
 - `resource_searchdomain`, the search domain (probably determined by a router)
