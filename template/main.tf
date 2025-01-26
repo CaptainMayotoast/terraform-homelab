@@ -10,7 +10,7 @@ terraform {
     # https://registry.terraform.io/providers/bpg/proxmox/latest/docs
     proxmox = {
       source  = "bpg/proxmox"
-      version = ">=0.69.0"
+      version = ">=0.70.0"
     }
   }
 }
@@ -18,7 +18,7 @@ terraform {
 data "external" "vault" {
   program = [
     "../bin/ansible-vault-proxy.sh",
-    "../terraform-vault.json"
+    "../terraform-vault-proxmox1.json"
   ]
 }
 
@@ -29,7 +29,9 @@ provider "proxmox" {
   api_token = data.external.vault.result.api_token
   insecure  = true
 
-  # requires first "ssh-copy-id terraform@<pve-server>"
+  # requires:
+  # (host/container) ssh-keygen -o -a 100 -t ed25519 -f ~/.ssh/terraform_id_ed25519 -C "USER_EMAIL"
+  # (host/container) ssh-copy-id -i ~/.ssh/terraform_id_ed25519.pub terraform@<PVE_SERVER_ADDRESS>
   ssh {
     agent       = true
     username    = data.external.vault.result.connection_user
@@ -45,7 +47,7 @@ resource "proxmox_virtual_environment_download_file" "image" {
   # used for non-Ubuntu images
   # file_name          = ""
   url                = "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
-  checksum           = "b63f266fa4bdf146dea5b0938fceac694cb3393688fb12a048ba2fc72e7bfe1b"
+  checksum           = "28d2f9df3ac0d24440eaf6998507df3405142cf94a55e1f90802c78e43d2d9df"
   checksum_algorithm = "sha256"
   overwrite          = false
 }

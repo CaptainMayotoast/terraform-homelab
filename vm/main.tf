@@ -10,7 +10,7 @@ terraform {
     # https://registry.terraform.io/providers/bpg/proxmox/latest/docs
     proxmox = {
       source  = "bpg/proxmox"
-      version = ">=0.69.0"
+      version = ">=0.70.0"
     }
   }
 }
@@ -18,7 +18,7 @@ terraform {
 data "external" "vault" {
   program = [
     "../bin/ansible-vault-proxy.sh",
-    "../terraform-vault.json"
+    "../terraform-vault-proxmox1.json"
   ]
 }
 
@@ -29,7 +29,9 @@ provider "proxmox" {
   api_token = data.external.vault.result.api_token
   insecure  = true
 
-  # requires first "ssh-copy-id terraform@<pve-server>"
+  # requires:
+  # (host/container) ssh-keygen -o -a 100 -t ed25519 -f ~/.ssh/terraform_id_ed25519 -C "USER_EMAIL"
+  # (host/container) ssh-copy-id -i ~/.ssh/terraform_id_ed25519.pub terraform@<PVE_SERVER_ADDRESS>  
   ssh {
     agent       = true
     username    = data.external.vault.result.connection_user
